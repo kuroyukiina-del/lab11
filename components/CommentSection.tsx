@@ -38,9 +38,9 @@ export default function CommentSection({ postId }: { postId: string }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [reactionLoading, setReactionLoading] = useState<string | null>(null);
 
-  // โหลดความคิดเห็น
-  async function loadComments() {
-    setLoading(true);
+  // โหลดความคิดเห็น (silent = true จะไม่อวด loader ให้จอวูบวาบ)
+  async function loadComments(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/comments?postId=${postId}`);
       const data = await res.json();
@@ -53,16 +53,40 @@ export default function CommentSection({ postId }: { postId: string }) {
     } catch {
       setError("ไม่สามารถโหลดความคิดเห็นได้");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
-  // กดแสดงความรู้สึก (Toggle Reaction)
+  // กดแสดงความรู้สึก (Toggle Reaction) พร้อม Optimistic Update ทันทีแบบ 0ms
   async function handleToggleReaction(commentId: string, emoji: string) {
-    const loadingKey = `${commentId}-${emoji}`;
-    setReactionLoading(loadingKey);
-    setError(null);
+    if (!currentUserId) {
+      setError("กรุณาเข้าสู่ระบบก่อนกดแสดงความรู้สึก");
+      return;
+    }
 
+    setError(null);
+    const previousComments = [...comments];
+
+    // ⚡ 1. Optimistic Update: อัปเดตหน้าจอทันทีแบบลื่นไหล
+    setComments((prev) =>
+      prev.map((c) => {
+        if (c.id !== commentId) return c;
+        const currentReactions = c.reactions || [];
+        const exists = currentReactions.some(
+          (r) => r.emoji === emoji && r.userId === currentUserId
+        );
+
+        const updatedReactions = exists
+          ? currentReactions.filter(
+              (r) => !(r.emoji === emoji && r.userId === currentUserId)
+            )
+          : [...currentReactions, { id: `opt-${Date.now()}`, emoji, userId: currentUserId }];
+
+        return { ...c, reactions: updatedReactions };
+      })
+    );
+
+    // ⚡ 2. ส่ง Request เบื้องหลัง
     try {
       const res = await fetch(`/api/comments/${commentId}/reactions`, {
         method: "POST",
@@ -72,17 +96,16 @@ export default function CommentSection({ postId }: { postId: string }) {
       const data = await res.json();
 
       if (!res.ok) {
+        // Rollback หากเกิดข้อผิดพลาด
+        setComments(previousComments);
         if (res.status === 401) {
           throw new Error("กรุณาเข้าสู่ระบบก่อนกดแสดงความรู้สึก");
         }
         throw new Error(data.error || "ไม่สามารถแสดงความรู้สึกได้");
       }
-
-      await loadComments();
     } catch (err: any) {
+      setComments(previousComments);
       setError(err.message);
-    } finally {
-      setReactionLoading(null);
     }
   }
 
@@ -90,7 +113,7 @@ export default function CommentSection({ postId }: { postId: string }) {
     loadComments();
   }, [postId]);
 
-  // ส่งความคิดเห็นใหม่ (POST)
+  // ส่งความคิดเห็นใหม่ (POST) — อัปเดต State ทันทีไม่รีโหลดทั้งหน้า
   async function handleAddComment(e: React.FormEvent) {
     e.preventDefault();
     if (!newText.trim()) return;
@@ -115,8 +138,9 @@ export default function CommentSection({ postId }: { postId: string }) {
       }
 
       setNewText("");
-      setSuccess("แสดงความคิดเห็นสำเร็จ (ผ่าน L3 Sanitize & L4 Validation เรียบร้อยแล้ว)");
-      await loadComments();
+      setSuccess("แสดงความคิดเห็นสำเร็จ!");
+      // ดึงข้อมูลใหม่แบบเงียบๆ ไม่กระตุก
+      await loadComments(true);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -124,7 +148,7 @@ export default function CommentSection({ postId }: { postId: string }) {
     }
   }
 
-  // แก้ไขความคิดเห็น (PATCH) — ตรวจสอบ L4 Authorization
+  // แก้ไขความคิดเห็น (PATCH) — อัปเดตทันที
   async function handleUpdateComment(commentId: string) {
     if (!editText.trim()) return;
 
@@ -149,7 +173,10 @@ export default function CommentSection({ postId }: { postId: string }) {
 
       setEditingId(null);
       setSuccess("แก้ไขความคิดเห็นสำเร็จ!");
-      await loadComments();
+      // อัปเดตข้อความใน state ทันที
+      setComments((prev) =>
+        prev.map((c) => (c.id === commentId && data.item ? { ...c, text: data.item.text } : c))
+      );
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -157,7 +184,7 @@ export default function CommentSection({ postId }: { postId: string }) {
     }
   }
 
-  // ลบความคิดเห็น (DELETE) — ตรวจสอบ L4 Authorization
+  // ลบความคิดเห็น (DELETE) — ตัดออกจากหน้าจอทันที
   async function handleDeleteComment(commentId: string) {
     if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการลบความคิดเห็นนี้?")) return;
 
@@ -179,7 +206,8 @@ export default function CommentSection({ postId }: { postId: string }) {
       }
 
       setSuccess("ลบความคิดเห็นสำเร็จ!");
-      await loadComments();
+      // ลบออกจาก state ทันที ไม่ต้องโหลดใหม่ทั้งหน้า
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -251,7 +279,26 @@ export default function CommentSection({ postId }: { postId: string }) {
 
       {/* รายการความคิดเห็น */}
       {loading ? (
-        <p className="text-center text-sm text-gray-500 py-6">กำลังโหลดความคิดเห็น...</p>
+        <div className="space-y-4 animate-pulse">
+          {[1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="h-8 w-8 rounded-full bg-gray-200"></div>
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3.5 w-28 bg-gray-200 rounded"></div>
+                  <div className="h-2.5 w-16 bg-gray-100 rounded"></div>
+                </div>
+              </div>
+              <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+              <div className="h-3.5 bg-gray-100 rounded w-1/2"></div>
+              <div className="mt-4 pt-3 border-t border-gray-100 flex gap-2">
+                <div className="h-6 w-12 bg-gray-100 rounded-full"></div>
+                <div className="h-6 w-12 bg-gray-100 rounded-full"></div>
+                <div className="h-6 w-12 bg-gray-100 rounded-full"></div>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : comments.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500">
           ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นได้เลย!
@@ -352,7 +399,7 @@ export default function CommentSection({ postId }: { postId: string }) {
 
               {/* แถบ Reaction แสดงความรู้สึก (Emoji) */}
               <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-gray-400 mr-1">ความรู้สึก:</span>
+                <span className="text-xs text-gray-400 mr-1 select-none">ความรู้สึก:</span>
                 {AVAILABLE_EMOJIS.map((emoji) => {
                   const reactionsForEmoji = (comment.reactions || []).filter(
                     (r) => r.emoji === emoji
@@ -361,29 +408,29 @@ export default function CommentSection({ postId }: { postId: string }) {
                   const isReacted = currentUserId
                     ? reactionsForEmoji.some((r) => r.userId === currentUserId)
                     : false;
-                  const isLoading = reactionLoading === `${comment.id}-${emoji}`;
 
                   return (
                     <button
                       key={emoji}
                       type="button"
                       onClick={() => handleToggleReaction(comment.id, emoji)}
-                      disabled={isLoading}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${isReacted
-                          ? "bg-blue-50 border-blue-400 text-blue-700 shadow-sm scale-105"
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150 active:scale-90 hover:scale-105 cursor-pointer select-none ${
+                        isReacted
+                          ? "bg-blue-50 border-blue-400 text-blue-700 shadow-sm scale-105 ring-1 ring-blue-300"
                           : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300"
-                        } ${isLoading ? "opacity-50 cursor-wait" : ""}`}
+                      }`}
                       title={
                         isReacted
                           ? `คลิกเพื่อยกเลิก ${emoji}`
                           : `คลิกเพื่อส่ง ${emoji}`
                       }
                     >
-                      <span className="text-sm">{emoji}</span>
+                      <span className="text-sm transition-transform">{emoji}</span>
                       {count > 0 && (
                         <span
-                          className={`font-semibold ${isReacted ? "text-blue-700" : "text-gray-600"
-                            }`}
+                          className={`font-semibold ${
+                            isReacted ? "text-blue-700" : "text-gray-600"
+                          }`}
                         >
                           {count}
                         </span>

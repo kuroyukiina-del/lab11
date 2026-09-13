@@ -4,6 +4,7 @@ import { cleanRichText } from './sanitize';
 import { ForbiddenError, NotFoundError, ValidationError } from './errors';
 import { commentSchema, commentUpdateSchema, reactionSchema } from './schemas';
 import { ZodError } from 'zod';
+import * as ReactionModel from './reactions';
 
 // ── POST: สร้าง Comment ใหม่ ──────────────────────────────────────────────────
 // L3: sanitizeHtml() ทุกครั้งก่อนบันทึก
@@ -49,29 +50,14 @@ export async function toggleCommentReaction(commentId: string, raw: unknown, use
   const comment = await prisma.comment.findUnique({ where: { id: commentId } });
   if (!comment) throw new NotFoundError(`ไม่พบ comment รหัส ${commentId}`);
 
-  const existing = await prisma.commentReaction.findUnique({
-    where: {
-      commentId_userId_emoji: {
-        commentId,
-        userId,
-        emoji: data.emoji,
-      },
-    },
-  });
+  // เรียกใช้ Model Layer (lib/reactions.ts)
+  const existing = await ReactionModel.findReaction(commentId, userId, data.emoji);
 
   if (existing) {
-    await prisma.commentReaction.delete({
-      where: { id: existing.id },
-    });
+    await ReactionModel.deleteReaction(existing.id);
     return { action: 'removed', emoji: data.emoji };
   } else {
-    await prisma.commentReaction.create({
-      data: {
-        commentId,
-        userId,
-        emoji: data.emoji,
-      },
-    });
+    await ReactionModel.addReaction(commentId, userId, data.emoji);
     return { action: 'added', emoji: data.emoji };
   }
 }

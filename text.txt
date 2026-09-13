@@ -1,4 +1,4 @@
-ในการพัฒนาระบบครั้งนี้ ได้ดำเนินการเพิ่มเติมใน 2 ส่วนหลัก ได้แก่ **Change Password** และ **Comment Ownership** เพื่อเพิ่มความปลอดภัยและความถูกต้องในการจัดการข้อมูลของผู้ใช้งาน
+ในการพัฒนาระบบครั้งนี้ ได้ดำเนินการเพิ่มเติมใน 3 ส่วนหลัก ได้แก่ **Change Password**, **Comment Ownership** และ **Comment Emoji Reactions** เพื่อเพิ่มความปลอดภัย ความถูกต้องในการจัดการข้อมูล และประสบการณ์การใช้งานของผู้ใช้งาน
 
 **ส่วนที่ 1: Change Password**
 
@@ -20,4 +20,19 @@
 
 และสร้าง `app/api/comments/[id]/route.ts` เพื่อรองรับการแก้ไขและลบความคิดเห็นผ่าน PATCH และ DELETE โดยมีการตรวจสอบ Ownership ก่อนดำเนินการ หากผู้ใช้งานไม่ใช่เจ้าของความคิดเห็น ระบบจะปฏิเสธการดำเนินการด้วยสถานะ **403 Forbidden**
 
-โดยการพัฒนาทั้งสองส่วนนี้ช่วยเพิ่มความปลอดภัยของระบบ ทั้งในด้านการจัดการรหัสผ่าน การตรวจสอบข้อมูล และการควบคุมสิทธิ์ในการเข้าถึงและแก้ไขข้อมูลของผู้ใช้งาน
+**ส่วนที่ 3: Comment Emoji Reactions (Schema, Model/Service/Controller, และ UI)**
+
+ได้พัฒนาระบบแสดงความรู้สึก (Emoji Reaction) ให้กับแต่ละความคิดเห็นตามสถาปัตยกรรมแบบแบ่งชั้น (Layered Architecture):
+
+1. **Database Schema:** เพิ่ม `CommentReaction model` ในไฟล์ `prisma/schema.prisma` ประกอบด้วย `commentId`, `userId`, `emoji` และสร้าง Unique Index `@@unique([commentId, userId, emoji])` เพื่อจำกัดให้ผู้ใช้ 1 คนสามารถแสดงความรู้สึกแต่ละอีโมจิในคอมเมนต์เดียวกันได้เพียง 1 ครั้ง และรองรับการ Toggle เปิด-ปิด
+2. **API Architecture (Model / Service / Controller):**
+   - **Model Layer:** สร้างไฟล์ `lib/reactions.ts` สำหรับจัดการคำสั่ง SQL / Prisma Queries ในการค้นหา เพิ่ม และลบ Reaction (`findReaction`, `addReaction`, `deleteReaction`)
+   - **Service Layer:** เพิ่มฟังก์ชัน `toggleCommentReaction` ในไฟล์ `lib/commentService.ts` พร้อมเพิ่ม `reactionSchema` ใน `lib/schemas.ts` เพื่อ Validate ข้อมูลด้วย Zod และจัดการสลับสถานะ (ถ้าเคยกดแล้วจะลบออก ถ้ายังไม่เคยกดจะเพิ่มใหม่)
+   - **Controller Layer:** สร้างไฟล์ `app/api/comments/[id]/reactions/route.ts` รองรับ POST endpoint สำหรับรับ Request โดยตรวจสอบ `userId` จาก Session Cookie ป้องกันการกดสแปมจากบุคคลภายนอก หากยังไม่เข้าสู่ระบบจะส่งสถานะ **401 Unauthorized**
+3. **UI Layer (ปุ่ม React + แสดงจำนวน):**
+   - ปรับปรุงคอมโพเนนต์ `components/CommentSection.tsx` โดยเพิ่มแถบปุ่มแสดงความรู้สึกด้วยอีโมจิ (👍, ❤️, 😂, 🎉, 🚀) ใต้แต่ละความคิดเห็น
+   - แสดงตัวเลขนับจำนวนผู้กดของแต่ละอีโมจิ
+   - แสดงสถานะ Active (ไฮไลต์สีฟ้า) บนอีโมจิที่ผู้ใช้งานปัจจุบันเคยกดไว้ และรองรับการกดเพื่อสลับสถานะ (Toggle) ได้อย่างราบรื่น
+
+โดยการพัฒนาทั้งสามส่วนนี้ช่วยเพิ่มความสมบูรณ์ ความปลอดภัย และการมีปฏิสัมพันธ์ของผู้ใช้งานภายในระบบอย่างครบถ้วน
+
