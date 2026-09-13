@@ -25,4 +25,9 @@ export const commentSchema = z.object({
 export const commentUpdateSchema = z.object({
   text: z.string().min(1, 'ข้อความห้ามว่าง').max(2000, 'ข้อความยาวเกินไป'),
 });
+
+// L4: Zod schema สำหรับ Comment Reaction (เช่น 👍, ❤️, 😂, 🎉, 🚀)
+export const reactionSchema = z.object({
+  emoji: z.string().min(1, 'กรุณาระบุอีโมจิ').max(10, 'อีโมจิยาวเกินไป'),
+});
 

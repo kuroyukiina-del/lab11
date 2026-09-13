@@ -55,8 +55,8 @@ export async function removeMessage(id: string) {
     throw err;
   }
 }
-// lib/messageService.ts
-export async function listMessages(search?: string) {
+export async function listMessages(param?: { search?: string } | string) {
+  const search = typeof param === 'string' ? param : param?.search;
   const all = await MessageModel.getMessages();
   if (!search) return all;
   return all.filter((m) =>

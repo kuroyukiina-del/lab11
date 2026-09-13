@@ -2,7 +2,7 @@
 import { prisma } from './prisma';
 import { cleanRichText } from './sanitize';
 import { ForbiddenError, NotFoundError, ValidationError } from './errors';
-import { commentSchema, commentUpdateSchema } from './schemas';
+import { commentSchema, commentUpdateSchema, reactionSchema } from './schemas';
 import { ZodError } from 'zod';
 
 // ── POST: สร้าง Comment ใหม่ ──────────────────────────────────────────────────
@@ -24,13 +24,56 @@ export async function createComment(raw: unknown, authorId: string) {
   });
 }
 
-// ── GET: ดึง Comments ทั้งหมดของ post ──────────────────────────────────────────
+// ── GET: ดึง Comments ทั้งหมดของ post พร้อม reactions ─────────────────────────
 export async function getCommentsByPost(postId: string) {
   return prisma.comment.findMany({
     where: { postId },
     orderBy: { createdAt: 'desc' },
-    include: { author: { select: { id: true, email: true } } },
+    include: {
+      author: { select: { id: true, email: true } },
+      reactions: { select: { id: true, emoji: true, userId: true } },
+    },
   });
+}
+
+// ── POST: กด / สลับ (Toggle) Reaction ให้กับ Comment ──────────────────────────
+export async function toggleCommentReaction(commentId: string, raw: unknown, userId: string) {
+  let data: { emoji: string };
+  try {
+    data = reactionSchema.parse(raw);
+  } catch (err) {
+    if (err instanceof ZodError) throw new ValidationError(err.issues[0].message);
+    throw err;
+  }
+
+  const comment = await prisma.comment.findUnique({ where: { id: commentId } });
+  if (!comment) throw new NotFoundError(`ไม่พบ comment รหัส ${commentId}`);
+
+  const existing = await prisma.commentReaction.findUnique({
+    where: {
+      commentId_userId_emoji: {
+        commentId,
+        userId,
+        emoji: data.emoji,
+      },
+    },
+  });
+
+  if (existing) {
+    await prisma.commentReaction.delete({
+      where: { id: existing.id },
+    });
+    return { action: 'removed', emoji: data.emoji };
+  } else {
+    await prisma.commentReaction.create({
+      data: {
+        commentId,
+        userId,
+        emoji: data.emoji,
+      },
+    });
+    return { action: 'added', emoji: data.emoji };
+  }
 }
 
 // ── PATCH: แก้ไข Comment (เจ้าของเท่านั้น) ────────────────────────────────────

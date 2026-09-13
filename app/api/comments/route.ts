@@ -7,9 +7,11 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/comments?postId=xxx
 export const GET = withErrorHandling(async (request: Request) => {
+  const cookieStore = await cookies();
+  const currentUserId = cookieStore.get('session')?.value ?? null;
   const postId = new URL(request.url).searchParams.get('postId') ?? '';
   const comments = await getCommentsByPost(postId);
-  return Response.json({ comments });
+  return Response.json({ comments, currentUserId });
 });
 
 // POST /api/comments

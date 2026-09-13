@@ -14,10 +14,18 @@ interface CommentItem {
     id: string;
     email: string;
   };
+  reactions?: {
+    id: string;
+    emoji: string;
+    userId: string;
+  }[];
 }
+
+const AVAILABLE_EMOJIS = ["👍", "❤️", "😂", "🎉", "🚀"];
 
 export default function CommentSection({ postId }: { postId: string }) {
   const [comments, setComments] = useState<CommentItem[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [newText, setNewText] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -28,6 +36,7 @@ export default function CommentSection({ postId }: { postId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [reactionLoading, setReactionLoading] = useState<string | null>(null);
 
   // โหลดความคิดเห็น
   async function loadComments() {
@@ -37,11 +46,43 @@ export default function CommentSection({ postId }: { postId: string }) {
       const data = await res.json();
       if (res.ok && Array.isArray(data.comments)) {
         setComments(data.comments);
+        if (data.currentUserId) {
+          setCurrentUserId(data.currentUserId);
+        }
       }
     } catch {
       setError("ไม่สามารถโหลดความคิดเห็นได้");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // กดแสดงความรู้สึก (Toggle Reaction)
+  async function handleToggleReaction(commentId: string, emoji: string) {
+    const loadingKey = `${commentId}-${emoji}`;
+    setReactionLoading(loadingKey);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/comments/${commentId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("กรุณาเข้าสู่ระบบก่อนกดแสดงความรู้สึก");
+        }
+        throw new Error(data.error || "ไม่สามารถแสดงความรู้สึกได้");
+      }
+
+      await loadComments();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setReactionLoading(null);
     }
   }
 
@@ -308,6 +349,49 @@ export default function CommentSection({ postId }: { postId: string }) {
                   dangerouslySetInnerHTML={{ __html: comment.text }}
                 />
               )}
+
+              {/* แถบ Reaction แสดงความรู้สึก (Emoji) */}
+              <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-gray-400 mr-1">ความรู้สึก:</span>
+                {AVAILABLE_EMOJIS.map((emoji) => {
+                  const reactionsForEmoji = (comment.reactions || []).filter(
+                    (r) => r.emoji === emoji
+                  );
+                  const count = reactionsForEmoji.length;
+                  const isReacted = currentUserId
+                    ? reactionsForEmoji.some((r) => r.userId === currentUserId)
+                    : false;
+                  const isLoading = reactionLoading === `${comment.id}-${emoji}`;
+
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => handleToggleReaction(comment.id, emoji)}
+                      disabled={isLoading}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${isReacted
+                          ? "bg-blue-50 border-blue-400 text-blue-700 shadow-sm scale-105"
+                          : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300"
+                        } ${isLoading ? "opacity-50 cursor-wait" : ""}`}
+                      title={
+                        isReacted
+                          ? `คลิกเพื่อยกเลิก ${emoji}`
+                          : `คลิกเพื่อส่ง ${emoji}`
+                      }
+                    >
+                      <span className="text-sm">{emoji}</span>
+                      {count > 0 && (
+                        <span
+                          className={`font-semibold ${isReacted ? "text-blue-700" : "text-gray-600"
+                            }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ))}
         </div>
