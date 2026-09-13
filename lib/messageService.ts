@@ -15,9 +15,6 @@ export async function createMessage(raw: unknown) {
   return MessageModel.addMessage(data);
 }
 
-export async function listMessages(options?: { search?: string }) {
-  return await MessageModel.getMessages(options);
-}
 
 export async function getMessageById(id: string) {
   if (!id) {
@@ -57,6 +54,15 @@ export async function removeMessage(id: string) {
     }
     throw err;
   }
+}
+// lib/messageService.ts
+export async function listMessages(search?: string) {
+  const all = await MessageModel.getMessages();
+  if (!search) return all;
+  return all.filter((m) =>
+    m.name.includes(search) ||
+    m.message.includes(search)
+  );
 }
 
 
