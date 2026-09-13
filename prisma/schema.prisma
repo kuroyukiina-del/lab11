@@ -18,6 +18,7 @@ model Message {
   name      String
   email     String   @unique
   message   String
+  tag       String?  // ← เพิ่มใหม่
   createdAt DateTime @default(now())
 }
 
